@@ -179,7 +179,12 @@ void OMX::binderDied(const wp<IBinder> &the_late_who) {
         Mutex::Autolock autoLock(mLock);
 
         ssize_t index = mLiveNodes.indexOfKey(the_late_who);
-        CHECK(index >= 0);
+
+        if (index < 0) {
+            ALOGE("b/27597103, nonexistent observer on binderDied");
+            android_errorWriteLog(0x534e4554, "27597103");
+            return;
+        }
 
         instance = mLiveNodes.editValueAt(index);
         mLiveNodes.removeItemsAt(index);
@@ -363,9 +368,9 @@ status_t OMX::configureVideoTunnelMode(
 
 status_t OMX::useBuffer(
         node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-        buffer_id *buffer, OMX_U32 allottedSize) {
+        buffer_id *buffer, OMX_U32 allottedSize, OMX_BOOL crossProcess) {
     return findInstance(node)->useBuffer(
-            port_index, params, buffer, allottedSize);
+            port_index, params, buffer, allottedSize, crossProcess);
 }
 
 status_t OMX::useGraphicBuffer(
@@ -416,9 +421,9 @@ status_t OMX::allocateBuffer(
 
 status_t OMX::allocateBufferWithBackup(
         node_id node, OMX_U32 port_index, const sp<IMemory> &params,
-        buffer_id *buffer, OMX_U32 allottedSize) {
+        buffer_id *buffer, OMX_U32 allottedSize, OMX_BOOL crossProcess) {
     return findInstance(node)->allocateBufferWithBackup(
-            port_index, params, buffer, allottedSize);
+            port_index, params, buffer, allottedSize, crossProcess);
 }
 
 status_t OMX::freeBuffer(node_id node, OMX_U32 port_index, buffer_id buffer) {

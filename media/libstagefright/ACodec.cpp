@@ -1670,7 +1670,10 @@ status_t ACodec::configureCodec(
             ALOGE("[%s] storeMetaDataInBuffers (input) failed w/ err %d",
                     mComponentName.c_str(), err);
 
-            return err;
+            if (mOMX->livesLocally(mNode, getpid())) {
+                return err;
+            }
+            ALOGI("ignoring failure to use internal MediaCodec key.");
         }
         // For this specific case we could be using camera source even if storeMetaDataInBuffers
         // returns Gralloc source. Pretend that we are; this will force us to use nBufferSize.
@@ -2433,6 +2436,7 @@ status_t ACodec::setupAACCodec(
             : OMX_AUDIO_AACStreamFormatMP4FF;
 
     OMX_AUDIO_PARAM_ANDROID_AACPRESENTATIONTYPE presentation;
+    InitOMXParams(&presentation);
     presentation.nMaxOutputChannels = maxOutputChannelCount;
     presentation.nDrcCut = drc.drcCut;
     presentation.nDrcBoost = drc.drcBoost;

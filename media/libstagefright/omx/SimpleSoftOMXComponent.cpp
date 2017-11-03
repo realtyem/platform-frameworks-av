@@ -125,6 +125,10 @@ OMX_ERRORTYPE SimpleSoftOMXComponent::internalGetParameter(
             OMX_PARAM_PORTDEFINITIONTYPE *defParams =
                 (OMX_PARAM_PORTDEFINITIONTYPE *)params;
 
+            if (!isValidOMXParam(defParams)) {
+                return OMX_ErrorBadParameter;
+            }
+
             if (defParams->nPortIndex >= mPorts.size()
                     || defParams->nSize
                             != sizeof(OMX_PARAM_PORTDEFINITIONTYPE)) {
@@ -151,6 +155,10 @@ OMX_ERRORTYPE SimpleSoftOMXComponent::internalSetParameter(
         {
             OMX_PARAM_PORTDEFINITIONTYPE *defParams =
                 (OMX_PARAM_PORTDEFINITIONTYPE *)params;
+
+            if (!isValidOMXParam(defParams)) {
+                return OMX_ErrorBadParameter;
+            }
 
             if (defParams->nPortIndex >= mPorts.size()) {
                 return OMX_ErrorBadPortIndex;
@@ -191,6 +199,13 @@ OMX_ERRORTYPE SimpleSoftOMXComponent::useBuffer(
     Mutex::Autolock autoLock(mLock);
     CHECK_LT(portIndex, mPorts.size());
 
+    PortInfo *port = &mPorts.editItemAt(portIndex);
+    if (size < port->mDef.nBufferSize) {
+        ALOGE("b/63522430, Buffer size is too small.");
+        android_errorWriteLog(0x534e4554, "63522430");
+        return OMX_ErrorBadParameter;
+    }
+
     *header = new OMX_BUFFERHEADERTYPE;
     (*header)->nSize = sizeof(OMX_BUFFERHEADERTYPE);
     (*header)->nVersion.s.nVersionMajor = 1;
@@ -212,8 +227,6 @@ OMX_ERRORTYPE SimpleSoftOMXComponent::useBuffer(
     (*header)->nFlags = 0;
     (*header)->nOutputPortIndex = portIndex;
     (*header)->nInputPortIndex = portIndex;
-
-    PortInfo *port = &mPorts.editItemAt(portIndex);
 
     CHECK(mState == OMX_StateLoaded || port->mDef.bEnabled == OMX_FALSE);
 
@@ -460,6 +473,13 @@ void SimpleSoftOMXComponent::onPortEnable(OMX_U32 portIndex, bool enable) {
     PortInfo *port = &mPorts.editItemAt(portIndex);
     CHECK_EQ((int)port->mTransition, (int)PortInfo::NONE);
     CHECK(port->mDef.bEnabled == !enable);
+
+    if (port->mDef.eDir != OMX_DirOutput) {
+        ALOGE("Port enable/disable allowed only on output ports.");
+        notify(OMX_EventError, OMX_ErrorUndefined, 0, NULL);
+        android_errorWriteLog(0x534e4554, "29421804");
+        return;
+    }
 
     if (!enable) {
         port->mDef.bEnabled = OMX_FALSE;

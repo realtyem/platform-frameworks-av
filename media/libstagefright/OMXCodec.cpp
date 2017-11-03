@@ -349,21 +349,6 @@ sp<MediaSource> OMXCodec::Create(
 
         ALOGV("Attempting to allocate OMX node '%s'", componentName);
 
-        if (!createEncoder
-                && (quirks & kOutputBuffersAreUnreadable)
-                && (flags & kClientNeedsFramebuffer)) {
-            if (strncmp(componentName, "OMX.SEC.", 8)) {
-                // For OMX.SEC.* decoders we can enable a special mode that
-                // gives the client access to the framebuffer contents.
-
-                ALOGW("Component '%s' does not give the client access to "
-                     "the framebuffer contents. Skipping.",
-                     componentName);
-
-                continue;
-            }
-        }
-
         status_t err = omx->allocateNode(componentName, observer, &node);
         if (err == OK) {
             ALOGV("Successfully allocated OMX node '%s'", componentName);
@@ -671,35 +656,6 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
     }
 
     initOutputFormat(meta);
-
-    if ((mFlags & kClientNeedsFramebuffer)
-            && !strncmp(mComponentName, "OMX.SEC.", 8)) {
-        // This appears to no longer be needed???
-
-        OMX_INDEXTYPE index;
-
-        status_t err =
-            mOMX->getExtensionIndex(
-                    mNode,
-                    "OMX.SEC.index.ThumbnailMode",
-                    &index);
-
-        if (err != OK) {
-            return err;
-        }
-
-        OMX_BOOL enable = OMX_TRUE;
-        err = mOMX->setConfig(mNode, index, &enable, sizeof(enable));
-
-        if (err != OK) {
-            CODEC_LOGE("setConfig('OMX.SEC.index.ThumbnailMode') "
-                       "returned error 0x%08x", err);
-
-            return err;
-        }
-
-        mQuirks &= ~kOutputBuffersAreUnreadable;
-    }
 
     if (mNativeWindow != NULL
         && !mIsEncoder
@@ -1666,7 +1622,9 @@ status_t OMXCodec::allocateBuffersOnPort(OMX_U32 portIndex) {
 
     for (OMX_U32 i = 0; i < def.nBufferCountActual; ++i) {
         sp<IMemory> mem = mDealer[portIndex]->allocate(def.nBufferSize);
-        CHECK(mem.get() != NULL);
+        if (mem == NULL || mem->pointer() == NULL) {
+            return NO_MEMORY;
+        }
 
         BufferInfo info;
         info.mData = NULL;
@@ -2901,7 +2859,11 @@ bool OMXCodec::drainInputBuffer(BufferInfo *info) {
             static const uint8_t kNALStartCode[4] =
                     { 0x00, 0x00, 0x00, 0x01 };
 
-            CHECK(info->mSize >= specific->mSize + 4);
+            if (info->mSize < specific->mSize + 4) {
+                ALOGE("info size %zu < specific size %zu", info->mSize, specific->mSize + 4);
+                setState(ERROR);
+                return false;
+            }
 
             size += 4;
 
@@ -2909,7 +2871,11 @@ bool OMXCodec::drainInputBuffer(BufferInfo *info) {
             memcpy((uint8_t *)info->mData + 4,
                    specific->mData, specific->mSize);
         } else {
-            CHECK(info->mSize >= specific->mSize);
+            if (info->mSize < specific->mSize) {
+                ALOGE("info size %zu < specific size %zu", info->mSize, specific->mSize);
+                setState(ERROR);
+                return false;
+            }
             memcpy(info->mData, specific->mData, specific->mSize);
         }
 
